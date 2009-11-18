@@ -1,3 +1,5 @@
+#!/usr/bin/ruby
+
 require 'socket'
 require 'gserver'
 require 'optparse'
