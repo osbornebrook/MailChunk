@@ -1,0 +1,18 @@
+mailchunk...
+
+Purpose
+--------
+
+  Mailchunk will aggregate emails for bulk sending to postfix to enable better queue management and delivery rates
+  It acts as a drop in SMTP server eliminating the need to recode existing web-based mailers
+ 
+How it Works (proposed ;)
+
+  Mailchunk will accept mail connections and add the new mail to an existing buffer.
+  When that buffer has reached QUEUE_LIMIT (conf param) emails it will be flushed to postfix
+  Additionally if QUEUE_FLUSH_TIMEOUT is reached then the queue will be flushed
+
+TO DO
+
+  Most of the code ;)
+  Add MIN_WAIT between queue flushes (e.g don't flush a queue within 60 seconds of last flush)
