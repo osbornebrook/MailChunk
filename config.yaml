@@ -1,0 +1,15 @@
+# MailChunk config file
+#
+# buffer_size is the number of messages stored in memory before dumping to "chunk" file.
+# chunk_size is the number of messages to send to outgoing mail server in one shot.
+# send_time how long to wait for new messages before sending current chunk.
+
+smtp:
+  host: localhost
+  port: 25
+  helo_domain: cosmo.local
+buffer_size: 3
+chunk_size: 10
+send_interval: 5
+  
+   

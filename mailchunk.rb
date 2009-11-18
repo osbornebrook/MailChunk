@@ -1,32 +1,39 @@
 require 'socket'
 require 'gserver'
 require 'optparse'
+require 'yaml'
 
-CONF = {}
+args = {:smtp => {}}
 
 optparse = OptionParser.new do|opts|
   # Set a banner, displayed at the top
   # of the help screen.
   opts.banner = "Usage: mailchunk [CONF] recipient"
+  
+  opts.on('-c', '--config FILE', 'Configuration file') do |c|
+    config_file = c
+  end
 
-  CONF[:verbose] = false
+  args[:verbose] = false
   opts.on( '-v', '--verbose', 'Output more information' ) do
-    CONF[:verbose] = true
+    args[:verbose] = true
   end
   
-  CONF[:debug] = false
+  args[:debug] = false
   opts.on( '-d', '--debug', 'Dont send to postfix, output to console' ) do
-    CONF[:debug] = true
+    args[:debug] = true
   end
   
-  CONF[:smtp_host] = 'localhost'
+  opts.on( '-t', '--time SECONDS', 'interval to chunks to outgoing server' ) do |t|
+    args[:send_interval] = t unless t.nil?
+  end
+  
   opts.on( '-h', '--host HOST', 'SMTP server to actually send the messages to' ) do |h|
-    CONF[:smtp_host] = h
+    args[:smtp][:host] = h unless t.nil?
   end
   
-  CONF[:smtp_port] = '25'
   opts.on( '-p', '--port port', 'SMTP server to actually send the messages to' ) do |p|
-    CONF[:smtp_port] = p
+    args[:smtp][:port] = p unless t.nil?
   end
 
   # This displays the help screen, all programs are
@@ -39,22 +46,33 @@ end
 
 optparse.parse!
 
+config_file ||= 'config.yaml' #default config file
+config = YAML.load_file(config_file)
+
+config = config.inject({}){|memo,(k,v)| memo[k.to_sym] = v; memo}
+config[:smtp] = config[:smtp].inject({}){|memo,(k,v)| memo[k.to_sym] = v; memo}
+
+config[:smtp].merge!(args[:smtp])
+args.delete(:smtp)
+
+CONF = config.merge(args)
+
 class MailChunk < GServer
 
   def initialize(*args)
     super(*args)
     
     # TODO - Config file... :)
-    @@queue_size_spool = 3 # how many emails to accept in memory before sending to spool  file
-    @@queue_size = 10
-    @@queue_timeout = 5 # how long to wait for more messages before sending queue?
-    @@helo_domain = Socket.gethostname
+    # CONF[:buffer_size] (was @@queue_size_spool) = 3 # how many emails to accept in memory before sending to spool  file
+    # CONF[:chunk_size] (was @@queue_size = 10) # how many messages to send in a post fix shot
+    # CONF[:send_interval]@@queue_timeout = 5 # how long to wait for more messages before sending queue?
+    @@helo_domain = CONF[:smtp][:helo_domain] || Socket.gethostname
     # if true will output messages to console instead of sending to postfix
-    @@verbose = false
+    @@verbose = CONF[:verbose]
     # Class variables
     
-    @@spool = []
-    @@messages = []
+    @@buffer = []
+    @@chunk = []
 
   end
   
@@ -74,51 +92,49 @@ class MailChunk < GServer
     end
     io.close
     puts msg if @@verbose
-    # test_send(msg)
     add_to_queue(msg)    
   end
 
-  def queue_timeout
-    @@queue_timeout
+  def send_interval
+    CONF[:send_interval]
   end
 
-  def add_to_queue(msg)
-    # loop while @@sending 
+  def add_to_queue(msg) 
 
     Thread.critical = true
-    @@spool << msg
+    @@buffer << msg
     Thread.critical = false
-    puts "Added msg to queue. Size: #{@@spool.length}"
+    puts "Added msg to queue. Size: #{@@buffer.length}"
 
     # REFACTOR based on size of messages hash
-    if @@spool.length >= @@queue_size_spool 
-      spool_messages
+    if @@buffer.length >= CONF[:buffer_size] 
+      write_chunk
     end
 
   end
 
-  def spool_messages
-    # Send current messages to spool file (in this case the @@messages array)
+  def write_chunk
+    # Send current messages to spool file (in this case the @@chunk array)
     Thread.critical = true
-    puts "spooling #{@@spool.length} messages"
-    @@messages += @@spool
-    @@spool = []
+    puts "spooling #{@@buffer.length} messages"
+    @@chunk += @@buffer
+    @@buffer = []
     Thread.critical = false
   end 
     
       
   def send_messages
-    spool_messages
-    if @@messages.length > 0
+    write_chunk
+    if @@chunk.length > 0
       begin
-        p = TCPSocket.new(CONF[:smtp_host], CONF[:smtp_port]) unless CONF[:debug]
+        p = TCPSocket.new(CONF[:smtp][:host], CONF[:smtp][:port]) unless CONF[:debug]
       rescue
-        puts "Error connecting to postfix on #{CONF[:smtp_host]}:#{CONF[:smtp_port]}"
+        puts "Error connecting to postfix on #{CONF[:smtp][:host]}:#{CONF[:smtp][:port]}"
       else
         # load all messages (from spool) and add current messages
         messages = []
         Thread.critical = true
-        messages = @@messages.shift(@@queue_size)
+        messages = @@chunk.shift(CONF[:chunk_size])
         Thread.critical = false
         if messages.length > 0
           sendspool = "HELO #{@@helo_domain}\r\n#{messages.join()}QUIT\r\n"
@@ -167,9 +183,9 @@ end
 a = MailChunk.new(2025)
 a.start
 loop do
-  sleep a.queue_timeout
+  sleep a.send_interval
   a.send_messages
-  puts "#{a.queue_timeout} seconds has passed ;)"
+  puts "#{a.send_interval} seconds has passed ;)"
   break if a.stopped?
 end
 
