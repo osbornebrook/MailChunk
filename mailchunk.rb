@@ -123,7 +123,7 @@ class MailChunk < GServer
         messages = @@messages.shift(@@queue_size)
         Thread.critical = false
         if messages.length > 0
-          sendspool = "HELO #{@@helo_domain}\r\n#{messages.join()}QUIT\r\n"
+          sendspool = "EHLO #{@@helo_domain}\r\n#{messages.join()}QUIT\r\n"
           puts sendspool if CONF[:debug] 
         end
         unless CONF[:debug]
